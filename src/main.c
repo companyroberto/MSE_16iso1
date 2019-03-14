@@ -69,7 +69,7 @@ void * task2( void * arg);
 
 /*==================[internal data definition]===============================*/
 
-uint32_t current_task;
+uint32_t current_task = 0;
 
 uint32_t sp1, sp2;
 uint32_t stack1[STACK_SIZE_B / 4];
@@ -104,24 +104,42 @@ void init_stack(uint32_t stack[], uint32_t stack_size_b, uint32_t * sp, task_typ
 	// Si pongo NULL es como FreeRTOS en donde no retorna valor. Si pongo 0 da error porque no es una dirección válida ya que todas terminan en 1.
 	stack[stack_size_b / 4-8] = (uint32_t) arg;						/* R0				*/ // Para salvar el argunmento
 
+	// Ahora en el systisk llamo a otra funcion entonces tengo que guardar espacio en la pila para ese Link Register
+	stack[stack_size_b / 4-9] = 0xFFFFFFF9;							/* LR IRO			*/
+
 	//*sp = (uint32_t)&(stack[stack_size_b / 4-8]);					// Es es la base de la pila, pero faltan los otros 8 registros
-	*sp = (uint32_t)&(stack[stack_size_b / 4-16]);					// aca considero los otros 8 registros
+	//*sp = (uint32_t)&(stack[stack_size_b / 4-16]);				// aca considero los otros 8 registros
+
+	//
+	*sp = (uint32_t)&(stack[stack_size_b / 4-17]);					// ahora tengo que sumar uno mas al stack
 }
 
-uint32_t get_next_context(uint32_t current_task)
+uint32_t get_next_context(uint32_t current_sp)
 {
+	uint32_t next_sp;
+
 	switch (current_task) {
 	case 0:
+		/* despues vere que hacer con el contexto del main 		*/
+		/* ? = current_sp										*/
+		current_task = 1;
+		next_sp = sp1;
 		break;
 	case 1:
+		sp1 = current_sp;
+		next_sp = sp2;
+		current_task = 2;
 		break;
 	case 2:
+		sp2 = current_sp;
+		next_sp = sp1;
+		current_task = 1;
 		break;
 	default:
 		__WFI();
 	}
 
-	return NULL;
+	return next_sp;
 }
 
 void * task1( void * arg)

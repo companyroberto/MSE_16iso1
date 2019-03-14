@@ -19,7 +19,7 @@
 	.global SysTick_Handler
 
 
-	.extern sp1
+	.extern get_next_context
 
 
 	/**
@@ -38,14 +38,13 @@
 */
 
 SysTick_Handler:
-    push {r4-r11}
+    push {r4-r11,lr}				// Como voy a saltar a una funcion estando dentro de otra, tengo que guardar el Link Register*/
 
-	ldr r0,=sp1		/* r0 = &sp1	*/
-	ldr r0,[r0]		/* r0 = *r0		*/
+	mrs r0,msp						/* r0 = msp		*/
+	bl get_next_context
+	msr msp,r0						/* msp = sp1	*/
 
-	msr msp,r0		/* msp = sp1	*/
-
-    pop {r4-r11}
+    pop {r4-r11,lr}
 
 return:
 	bx lr
