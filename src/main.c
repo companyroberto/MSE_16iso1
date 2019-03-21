@@ -31,11 +31,6 @@
  *
  */
  
-/** @brief This is a simple blink example.
- */
-
-/** \addtogroup blink Bare-metal blink example
- ** @{ */
 
 /*==================[inclusions]=============================================*/
 
@@ -61,7 +56,10 @@ typedef void * ( * task_type)(void *);
  */
 static void initHardware(void);
 
+void task_return_hook( void * ret_val);
 void init_stack(uint32_t stack[], uint32_t stack_size, uint32_t * sp, task_type entry_point, void * arg);
+uint32_t get_next_context(uint32_t current_sp);
+void task_delay( uint32_t systick);
 
 void * task1( void * arg);
 void * task2( void * arg);
@@ -85,6 +83,7 @@ static void initHardware(void)
 	SystemCoreClockUpdate();
 	SysTick_Config(SystemCoreClock / 1000);
 }
+
 
 void task_return_hook( void * ret_val)
 {
@@ -142,17 +141,32 @@ uint32_t get_next_context(uint32_t current_sp)
 	return next_sp;
 }
 
+void task_delay( uint32_t systick)
+{
+
+}
+
 void * task1( void * arg)
 {
 	while(1){
-		__WFI();
+		uint32_t tmp = 0;
+		for (tmp = 0; tmp < 10000000; ++tmp)	// max 4294967296
+		{
+			// esperando
+		}
+		Board_LED_Toggle(LED_1);
 	}
 }
 
 void * task2( void * arg)
 {
 	while(1){
-		__WFI();
+		uint32_t tmp = 0;
+		for (tmp = 0; tmp < 5000000; ++tmp)		// max 4294967296
+		{
+			// esperando
+		}
+		Board_LED_Toggle(LED_2);
 	}
 }
 

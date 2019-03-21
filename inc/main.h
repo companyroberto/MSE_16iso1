@@ -34,8 +34,6 @@
 #ifndef _MAIN_H_
 #define _MAIN_H_
 
-/** \addtogroup blink Bare-metal blink example
- ** @{ */
 
 /*==================[inclusions]=============================================*/
 
@@ -47,11 +45,15 @@ extern "C" {
 
 /*==================[macros]=================================================*/
 
-/** delay in milliseconds */
-#define DELAY_MS 500
 
 /** led number to toggle */
-#define LED 0
+#define LED_ROJO  0
+#define LED_VERDE 1
+#define LED_AZUL  2
+#define LED_1     3
+#define LED_2     4
+#define LED_3     5
+
 
 /*==================[typedef]================================================*/
 
