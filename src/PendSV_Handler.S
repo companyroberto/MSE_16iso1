@@ -38,6 +38,7 @@
 */
 
 PendSV_Handler:
+//cpsid i				//disable interrupts (Es como si fuera el GIE)
     push {r4-r11,lr}				// Como voy a saltar a una funcion estando dentro de otra, tengo que guardar el Link Register*/
 
 	mrs r0,msp						/* r0 = msp		*/
@@ -45,6 +46,6 @@ PendSV_Handler:
 	msr msp,r0						/* msp = sp1	*/
 
     pop {r4-r11,lr}
-
+//cpsie i				//enable interrupts (Como si fuera el GIE)
 return:
 	bx lr

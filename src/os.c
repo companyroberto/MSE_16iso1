@@ -21,27 +21,38 @@ typedef enum
 	eWaiting,		/* The task being queried is in the Blocked state. */
 } eTaskState;
 
-typedef struct xTASK_PARAMETERS
+typedef struct
 {
 	task_type entry_point;
 	uint32_t stack_size_b;
 	uint32_t tskIDLE_PRIORITY;
 	void * arg;
-	uint32_t stack[];				// uint32_t stack[STACK_SIZE_B / 4];
-	uint32_t * sp;
+	uint32_t stack[STACK_SIZE_B / 4];		//uint32_t stack[];
+	uint32_t sp;
+	eTaskState estado;
+	uint32_t delay;
 } TaskParameters_t;
+
+/* Task states returned by eTaskGetState. */
+typedef enum
+{
+	FROM_ISR = 0,	// Llamado desde INT
+	NO_FROM_ISR,	// Llamado desde DELAY
+} eISR;
 
 /*==================[internal data declaration]==============================*/
 
-uint32_t current_task = 0;
-uint32_t task1_delay = 0;
-uint32_t task2_delay = 0;
-uint32_t task3_delay = 0;
+TaskParameters_t tareaIDLE;
 
-uint32_t maximas_tareas = 10;		// Maximo numero de tareas a declarar
+int32_t current_task = -1;
+
 uint32_t puntero_proxima_tarea = 0;
 
-TaskParameters_t tareas[maximas_tareas];
+TaskParameters_t tareas[maximas_tareas+1];
+
+uint32_t * contexto_current_task_sp;
+
+uint32_t * contexto_next_task_sp;
 
 /*==================[internal functions declaration]=========================*/
 
@@ -52,9 +63,13 @@ static void initHardware(void);
 
 void task_return_hook( void * ret_val);
 
+void task_idle(void);
+
+void init_stack(uint32_t stack[], uint32_t stack_size, uint32_t * sp, task_type entry_point, void * arg);
+
 uint32_t get_next_context(uint32_t current_sp);
 
-void schedule( void );
+void schedule( eISR isr );
 
 /*==================[internal data definition]===============================*/
 
@@ -67,6 +82,8 @@ static void initHardware(void)
 	Board_Init();
 	SystemCoreClockUpdate();
 	SysTick_Config(SystemCoreClock / 1000);
+
+	// Se le da la menor prioridad de interrupcion.
 	NVIC_SetPriority(PendSV_IRQn, (1 << __NVIC_PRIO_BITS) -1);
 }
 
@@ -77,99 +94,11 @@ void task_return_hook( void * ret_val)
 	}
 }
 
-uint32_t get_next_context(uint32_t current_sp)
+void task_idle(void)
 {
-	uint32_t next_sp;
-
-	// Política Round-Robin para recorrer las tareas. La 0 es el main y la 3 es la idle.
-
-	switch (current_task) {
-	case 0:
-		/* despues vere que hacer con el contexto del main 		*/
-		/* ? = current_sp										*/
-		next_sp = sp1;
-		current_task = 1;
-		break;
-	case 1:
-		sp1 = current_sp;
-
-		if ( task2_delay == 0 ){		// Si la tarea 2 no está en delay, se le pasa el puntero.
-			next_sp = sp2;
-			current_task = 2;
-		}
-		else{							// Si no paso a la idle
-			next_sp = sp3;
-			current_task = 3;
-		}
-
-		break;
-	case 2:
-		sp2 = current_sp;
-
-		if ( task1_delay == 0 ){		// Si la tarea 1 no está en delay, se le pasa el puntero.
-			next_sp = sp1;
-			current_task = 1;
-		}
-		else{							// Si no paso a la idle
-			next_sp = sp3;
-			current_task = 3;
-		}
-
-		break;
-	case 3:
-		sp3 = current_sp;				// Por defecto guardo para volver a esta tarea idle
-		next_sp = sp3;
-		current_task = 3;
-
-		if ( task1_delay == 0 ){		// Si la tarea 1 no está en delay, se le pasa el puntero.
-			next_sp = sp1;
-			current_task = 1;
-		}
-		else{
-			if ( task2_delay == 0 ){	// Si la tarea 2 no está en delay, se le pasa el puntero.
-				next_sp = sp2;
-				current_task = 2;
-			}
-		}
-		break;
-	default:
-		while(1){
-			__WFI();
-		}
+	while(1){
+		__WFI();
 	}
-
-	// Si algún delay está configurado, lo decremento
-	if ( task1_delay > 0 )
-		task1_delay--;
-
-	if ( task2_delay > 0 )
-		task2_delay--;
-
-	return next_sp;
-}
-
-void SysTick_Handler( void )
-{
-	//Board_LED_Toggle(LED_3);
-	schedule();
-}
-
-void schedule( void )
-{
-	// Aseguramos que se ejecuten todas las interrupciones en el pipeline
-	__ISB();
-	// Aseguramos que se completen todos los accesos a memoria
-	__DSB();
-
-	// Activo PendSV para llevar a cabo el cambio de contexto
-	SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
-}
-
-/*==================[external functions definition]==========================*/
-
-void initOS(void)
-{
-	initHardware();
 }
 
 void init_stack(uint32_t stack[], uint32_t stack_size_b, uint32_t * sp, task_type entry_point, void * arg)
@@ -194,38 +123,132 @@ void init_stack(uint32_t stack[], uint32_t stack_size_b, uint32_t * sp, task_typ
 	*sp = (uint32_t) &(stack[stack_size_b / 4 - 17]);				// ahora tengo que sumar uno mas al stack por el LR IRO
 }
 
+uint32_t get_next_context(uint32_t current_sp)
+{
+	/*
+	 * Como el PendSV puede ser interrumpido por INT de mayor prioridad, aca solo cambio a la tarea seleccionada
+	 * y entonces si se genera una interrupcion de mayor prioridad no afecta
+	 */
+
+
+	*contexto_current_task_sp = current_sp;
+	return *contexto_next_task_sp;
+}
+
+void SysTick_Handler( void )
+{
+	/*
+	 * Se recorren todas las tareas con delay configurado par decrementarlo
+	 * Se llama al schedule para reprogramar la próxima tarea
+	 */
+
+	int t;
+	for (t = 0; t < puntero_proxima_tarea; ++t) {
+		if ( tareas[t].delay > 0 ){
+			tareas[t].delay--;
+			tareas[t].estado = eReady;
+		}
+	}
+
+	schedule( FROM_ISR );
+}
+
+void schedule( eISR isr )
+{
+	/*
+	 * Puede ser llamado desde una interrupción (por SysTick) o no (por Delay) y
+	 * este codigo se hace como sección crítica porque es un proceso atomico que
+	 * se debe completar aunque se dispare una interrupción.
+	 *
+	 * En esta función se determina la próxima tarea a ejecutar y luego se
+	 * genra la interrupción por soft para cambiar de contexto
+	 */
+
+
+	// Solo se ingresa como NO_FROM_ISR cuando viene desde 'task_delay'
+	if ( isr == NO_FROM_ISR ){
+		// Ingreso a sección crítica, enmascarar interrupciones
+		// ...falta el codigo de int...
+	}
+
+	// Aseguramos que se ejecuten todas las interrupciones en el pipeline
+	__ISB();
+	// Aseguramos que se completen todos los accesos a memoria
+	__DSB();
+
+
+
+	contexto_current_task_sp = &tareas[current_task].sp;
+	tareas[current_task].estado = eReady;
+
+	// Política Round-Robin para recorrer las tareas sin implementar prioridad
+	while( ++current_task < puntero_proxima_tarea && tareas[current_task].estado == eReady ){
+
+	}
+
+	if( current_task < puntero_proxima_tarea ){
+		contexto_next_task_sp = &tareas[current_task].sp;
+		tareas[current_task].estado = eRunning;
+	}
+	else{
+		contexto_next_task_sp = &tareaIDLE.sp;
+		tareaIDLE.estado = eRunning;
+		current_task = -1;
+	}
+
+
+	// Activo PendSV para llevar a cabo el cambio de contexto
+	SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
+
+	if ( isr == NO_FROM_ISR ){
+		// Salir de sección crítica, habilitar interrupciones
+		// ...falta el codigo de int...
+	}
+}
+
+/*==================[external functions definition]==========================*/
+
+void initOS(void)
+{
+	initHardware();
+
+	tareaIDLE.entry_point      = (task_type) task_idle;
+	tareaIDLE.stack_size_b     = STACK_SIZE_B;
+	tareaIDLE.tskIDLE_PRIORITY = 0;
+	tareaIDLE.arg              = 0;
+	tareaIDLE.estado           = eReady;
+
+	init_stack(tareaIDLE.stack, tareaIDLE.stack_size_b, &tareaIDLE.sp, tareaIDLE.entry_point, tareaIDLE.arg);
+}
+
 void osTaskCreate(task_type entry_point, uint32_t stack_size_b, uint32_t tskIDLE_PRIORITY, void * arg)
 {
-	tareas[puntero_proxima_tarea].entry_point      = entry_point;
-	tareas[puntero_proxima_tarea].stack_size_b     = stack_size_b;
-	tareas[puntero_proxima_tarea].tskIDLE_PRIORITY = tskIDLE_PRIORITY;
-	tareas[puntero_proxima_tarea].arg              = arg;
+	if(puntero_proxima_tarea < maximas_tareas){
+		tareas[puntero_proxima_tarea].entry_point      = entry_point;
+		tareas[puntero_proxima_tarea].stack_size_b     = stack_size_b;
+		tareas[puntero_proxima_tarea].tskIDLE_PRIORITY = tskIDLE_PRIORITY;
+		tareas[puntero_proxima_tarea].arg              = arg;
 
-	uint32_t stack[STACK_SIZE_B / 4];
-	tareas[puntero_proxima_tarea].stack            = stack;
+		tareas[puntero_proxima_tarea].estado           = eReady;
 
-	init_stack(stack1, stack_size_b, &sp1, entry_point, arg);
+		init_stack(tareas[puntero_proxima_tarea].stack, tareas[puntero_proxima_tarea].stack_size_b, &tareas[puntero_proxima_tarea].sp, tareas[puntero_proxima_tarea].entry_point, tareas[puntero_proxima_tarea].arg);
+
+		puntero_proxima_tarea++;
+	}
 }
 
 void task_delay( uint32_t tick)
 {
-	// En esta tarea se asigna la cantidad de tick para delay de cada tarea
+	/*
+	 * En esta tarea se asigna la cantidad de tick para delay de cada tarea
+	 *
+	 * En la proxima implementación voy a sacar delay como atributo de tareas y
+	 * las guardo en un vector las que llaman a delay
+	 */
 
-	switch (current_task) {
-	case 0:
-		/* no se permite la llamada a task_delay con el contexto del main */
-		__WFI();
-		break;
-	case 1:
-		task1_delay = tick;
-		break;
-	case 2:
-		task2_delay = tick;
-		break;
-	default:
-		__WFI();
-	}
-	__WFI();
+	tareas[current_task].delay  = tick;
+	tareas[current_task].estado = eWaiting;
+	schedule( NO_FROM_ISR );
 }
 
 /*==================[end of file]============================================*/
