@@ -26,6 +26,12 @@ extern "C" {
 
 typedef void * ( * task_type)(void *);
 
+typedef enum {
+	ePrioMAX = 1,
+	ePrioMED,
+	ePrioMIN,
+} eTaskPrioridades;
+
 /*==================[typedef]================================================*/
 
 /*==================[external data declaration]==============================*/
@@ -33,7 +39,7 @@ typedef void * ( * task_type)(void *);
 /*==================[external functions declaration]=========================*/
 
 void initOS(void);
-void osTaskCreate(task_type entry_point, uint32_t stack_size_b, uint32_t tskIDLE_PRIORITY, void * arg);
+void osTaskCreate(task_type entry_point, uint32_t stack_size_b, eTaskPrioridades prioridad, void * arg);
 void task_delay( uint32_t systick);
 
 /*==================[cplusplus]==============================================*/

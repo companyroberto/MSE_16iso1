@@ -5,14 +5,16 @@
  *      Author: TitO
  *
  *  Caracteristicas:
- *  - Cambio de contexto por PendSV.
- *  - Vector de tareas implementado.
- *  - Código de OS separado del main.
+ *  	- Cambio de contexto por PendSV.
+ *  	- Vector de tareas implementado.
+ *  	- Código de OS separado del main.
+ *  	- Vector de prioridades implementado.
  *
  *  Limitaciones en esta versión:
+ *  	- Las tareas no se pueden eliminar.
  *  	- El stack de las tareas es el mismo para todas porque esta definido en el vector
  *  	y por ahora no se utiliza el parametro pasado al crear la tarea.
- *  	- Todavía no se implementan las prioridades ni MEF para las tareas
+ *  	- Todavía no se implementa sección crítica en el schedule.
  *
  */
 
@@ -42,16 +44,16 @@ void * task2( void * arg);
 void * task1( void * arg)
 {
 	while(1){
-		task_delay( 1000 );
 		Board_LED_Toggle(LED_1);
+		task_delay( 1000 );
 	}
 }
 
 void * task2( void * arg)
 {
 	while(1){
-		task_delay( 2000 );
 		Board_LED_Toggle(LED_2);
+		task_delay( 2000 );
 	}
 }
 
@@ -60,9 +62,12 @@ void * task2( void * arg)
 
 int main(void)
 {
-	osTaskCreate(task1, STACK_SIZE_B, 0, (void*) 0x11223344);
-	osTaskCreate(task2, STACK_SIZE_B, 0, (void*) 0x11223344);
+	osTaskCreate(task1, STACK_SIZE_B, ePrioMAX, (void*) 0x11223344);
+	osTaskCreate(task2, STACK_SIZE_B, ePrioMAX, (void*) 0x11223344);
 
+	/*
+	 * La inicializacion del OS debe ser posterior a la declaracion de tareas
+	 */
 	initOS();
 
 	while (1)
