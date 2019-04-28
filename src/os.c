@@ -13,28 +13,6 @@
 
 /*==================[macros and definitions]=================================*/
 
-typedef enum {
-	eRunning = 0, /* A task is querying the state of itself, so must be running. */
-	eReady, /* The task being queried is in a read or pending ready list. */
-	eWaiting, /* The task being queried is in the Blocked state. */
-} eTaskState;
-
-typedef struct {
-	task_type entry_point;
-	uint32_t stack_size_b;
-	eTaskPrioridades prioridad;
-	void * arg;
-	uint32_t stack[STACK_SIZE_B / 4]; //uint32_t stack[];
-	uint32_t sp;
-	eTaskState estado;
-	uint32_t delay;
-} TaskParameters_t;
-
-typedef enum {
-	FROM_ISR = 0, // Llamado desde INT
-	NO_FROM_ISR, // Llamado desde DELAY
-} eISR;
-
 #define ePrioIDLE	   0
 #define sinAsignar	   -1
 
@@ -48,17 +26,17 @@ int32_t tareasPrioMAX[maximas_tareas];
 
 int32_t puntero_proxima_tarea_prioMED = 0;
 int32_t tareasPrioMED[maximas_tareas];
-
+//
 int32_t puntero_proxima_tarea_prioMIN = 0;
 int32_t tareasPrioMIN[maximas_tareas];
-
-uint32_t * contexto_current_task_sp = 0;
 
 uint32_t * contexto_next_task_sp = 0;
 
 int32_t current_task = sinAsignar;
 
 TaskParameters_t tareaIDLE;
+
+uint32_t contador_tick = 0;
 
 /*==================[internal functions declaration]=========================*/
 
@@ -71,8 +49,6 @@ void init_stack(uint32_t stack[], uint32_t stack_size, uint32_t * sp,
 
 uint32_t get_next_context(uint32_t current_sp);
 
-void schedule(eISR isr);
-
 void * task_idle(void * arg);
 
 /*==================[internal data definition]===============================*/
@@ -82,7 +58,6 @@ void * task_idle(void * arg);
 /*==================[internal functions definition]==========================*/
 
 static void initHardware(void) {
-	Board_Init();
 	SystemCoreClockUpdate();
 	SysTick_Config(SystemCoreClock / 1000);
 
@@ -118,65 +93,22 @@ void init_stack(uint32_t stack[], uint32_t stack_size_b, uint32_t * sp,
 
 uint32_t get_next_context(uint32_t current_sp) {
 	/*
-	 * Como el PendSV puede ser interrumpido por INT de mayor prioridad, aca solo cambio a la tarea seleccionada
-	 * y entonces si se genera una interrupcion de mayor prioridad no afecta
+	 * Las interrupciones estan deshabilitadas desde el PendSV
 	 */
-
-	// Guardar contexto de la tarea actual y actualizar estado (el contexto del main no lo guardo)
-	if (contexto_current_task_sp != 0)
-		*contexto_current_task_sp = current_sp;
-	return *contexto_next_task_sp;
-}
-
-void SysTick_Handler(void) {
-	/*
-	 * Se recorren todas las tareas con delay configurado para decrementarlo
-	 * Se llama al schedule para reprogramar la próxima tarea
-	 */
-
-	int t;
-	for (t = 0; t < puntero_proxima_tarea; ++t)
-		if (tareas[t].delay > 0)
-			if (--tareas[t].delay == 0)
-				tareas[t].estado = eReady;
-
-	schedule(FROM_ISR);
-}
-
-void schedule(eISR isr) {
-	/*
-	 * Puede ser llamado desde una interrupción (por SysTick) o no (por Delay) y
-	 * este codigo se hace como sección crítica porque es un proceso atomico que
-	 * se debe completar aunque se dispare una interrupción.
-	 *
-	 * En esta función se determina la próxima tarea a ejecutar y luego se
-	 * genra la interrupción por soft para cambiar de contexto
-	 */
-
-	// Solo se ingresa como NO_FROM_ISR cuando viene desde 'task_delay'
-	if (isr == NO_FROM_ISR) {
-		// Ingreso a sección crítica, enmascarar interrupciones
-		// ...falta el codigo de int...
-	}
-
-	// Aseguramos que se ejecuten todas las interrupciones en el pipeline
-	__ISB();
-	// Aseguramos que se completen todos los accesos a memoria
-	__DSB();
 
 	/*
 	 * Guardar contexto de la tarea actual y actualizar estado (el contexto del main no lo guardo)
 	 */
 	if (tareaIDLE.estado == eRunning) {
-		contexto_current_task_sp = &tareaIDLE.sp;
+		tareaIDLE.sp = current_sp;
 		tareaIDLE.estado = eReady;
 	} else if (current_task != sinAsignar) { // no es el main
-		contexto_current_task_sp = &tareas[current_task].sp;
+		tareas[current_task].sp = current_sp;
 		switch (tareas[current_task].estado) {
 		case eRunning: // Situacion normal
 			tareas[current_task].estado = eReady;
 			break;
-		case eWaiting: // Esperando un Delay
+		case eWaiting: // Esperando un Delay o Semaforo
 			/*
 			 * Esta esperando por otra operación, dicho operación se encarga...
 			 */
@@ -249,13 +181,41 @@ void schedule(eISR isr) {
 		tareas[current_task].estado = eRunning;
 	}
 
+
+	return *contexto_next_task_sp;
+}
+
+void SysTick_Handler(void) {
+	/*
+	 * Se actualizar el contador de tick.
+	 * Se recorren todas las tareas con delay configurado para decrementarlo.
+	 * Se llama al schedule para reprogramar la próxima tarea.
+	 */
+
+	contador_tick++;
+
+	int t;
+	for (t = 0; t < puntero_proxima_tarea; ++t)
+		if (tareas[t].delay > 0)
+			if (--tareas[t].delay <= 0)
+				tareas[t].estado = eReady;
+
+	schedule();
+}
+
+void schedule() {
+	/*
+	 * Puede ser llamado desde una interrupción (por SysTick) o no (por Delay)
+	 * Se activara PendSV que luego ejecutara get_next_context para elegir proxima tarea
+	 */
+
+	// Aseguramos que se ejecuten todas las interrupciones en el pipeline
+	__ISB();
+	// Aseguramos que se completen todos los accesos a memoria
+	__DSB();
+
 	// Activo PendSV para llevar a cabo el cambio de contexto
 	SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
-
-	if (isr == NO_FROM_ISR) {
-		// Salir de sección crítica, habilitar interrupciones
-		// ...falta el codigo de int...
-	}
 }
 
 void * task_idle(void * arg) {
@@ -267,10 +227,11 @@ void * task_idle(void * arg) {
 /*==================[external functions definition]==========================*/
 
 void initOS(void) {
+
 	initHardware();
 
 	/*
-	 * Todas las tareas e usuario ya fueron definidas, por lo tanto idle es la ultima
+	 * Configurar tarea idle
 	 */
 	tareaIDLE.entry_point = (task_type) task_idle;
 	tareaIDLE.stack_size_b = STACK_SIZE_B;
@@ -281,6 +242,9 @@ void initOS(void) {
 	init_stack(tareaIDLE.stack, tareaIDLE.stack_size_b, &tareaIDLE.sp,
 			tareaIDLE.entry_point, tareaIDLE.arg);
 
+	/*
+	 * Limpiar vectores de prioridades con punteros a a tareas
+	 */
 	bzero(tareasPrioMAX, maximas_tareas);
 	bzero(tareasPrioMED, maximas_tareas);
 	bzero(tareasPrioMIN, maximas_tareas);
@@ -309,14 +273,29 @@ void osTaskCreate(task_type entry_point, uint32_t stack_size_b,
 void task_delay(uint32_t tick) {
 	/*
 	 * En esta tarea se asigna la cantidad de tick para delay de cada tarea
-	 *
-	 * En la proxima implementación voy a sacar delay como atributo de tareas y
-	 * las guardo en un vector las que llaman a delay
+	 * Nota: Si se llama con tick = 0, es el efecto de ceder procesador...
 	 */
 
-	tareas[current_task].delay = tick;
-	tareas[current_task].estado = eWaiting;
-	schedule(NO_FROM_ISR);
+	if (tick > 0) {
+		tareas[current_task].delay = tick;
+		tareas[current_task].estado = eWaiting;
+	}
+	schedule();
+}
+
+uint32_t get_tick(void) {
+	return contador_tick;
+}
+
+TaskParameters_t * get_current_task(void){
+	return &tareas[current_task];
+}
+
+void ini_SeccionCritica(void){
+	__disable_irq();
+}
+void fin_SeccionCritica(void){
+	__enable_irq();
 }
 
 /*==================[end of file]============================================*/

@@ -38,14 +38,26 @@
 */
 
 PendSV_Handler:
-//cpsid i				//disable interrupts (Es como si fuera el GIE)
-    push {r4-r11,lr}				// Como voy a saltar a una funcion estando dentro de otra, tengo que guardar el Link Register*/
+	cpsid i							//disable interrupts (Es como si fuera el GIE)
 
+	// FPU contexto
+	tst lr,0x10						// ¿El bit 4 del EXEC_RETURN es cero?
+	it eq
+	vpusheq {s16-s31}
+	///////////////
+
+    push {r4-r11,lr}				// Como voy a saltar a una funcion estando dentro de otra, tengo que guardar el Link Register*/
 	mrs r0,msp						/* r0 = msp		*/
 	bl get_next_context
 	msr msp,r0						/* msp = sp1	*/
-
     pop {r4-r11,lr}
-//cpsie i				//enable interrupts (Como si fuera el GIE)
+
+	// FPU contexto
+	tst lr,0x10						// ¿El bit 4 del EXEC_RETURN es cero?
+	it eq
+	vpopeq {s16-s31}
+	///////////////
+
+	cpsie i							//enable interrupts (Como si fuera el GIE)
 return:
 	bx lr

@@ -12,6 +12,7 @@
 /*==================[inclusions]=============================================*/
 
 #include "board.h"
+#include "os_tareas.h"
 
 /*==================[cplusplus]==============================================*/
 
@@ -20,17 +21,6 @@ extern "C" {
 #endif
 
 /*==================[macros]=================================================*/
-
-#define maximas_tareas 10
-#define STACK_SIZE_B   512
-
-typedef void * ( * task_type)(void *);
-
-typedef enum {
-	ePrioMAX = 1,
-	ePrioMED,
-	ePrioMIN,
-} eTaskPrioridades;
 
 /*==================[typedef]================================================*/
 
@@ -41,6 +31,11 @@ typedef enum {
 void initOS(void);
 void osTaskCreate(task_type entry_point, uint32_t stack_size_b, eTaskPrioridades prioridad, void * arg);
 void task_delay( uint32_t systick);
+uint32_t get_tick(void);
+TaskParameters_t * get_current_task(void);
+void schedule(void);
+void ini_SeccionCritica(void);
+void fin_SeccionCritica(void);
 
 /*==================[cplusplus]==============================================*/
 
