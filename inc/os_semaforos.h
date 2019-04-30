@@ -1,35 +1,33 @@
-
-#ifndef _PendSV_Handler_H_
-#define _PendSV_Handler_H_
+#ifndef _OS_SEMAFORO_H_
+#define _OS_SEMAFORO_H_
 
 /*==================[inclusions]=============================================*/
 
-/*==================[cplusplus]==============================================*/
+#include "os_tareas.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <stdint.h>
 
 /*==================[macros]=================================================*/
 
+/** invalid event definition TODO: redefina esta macro a su criterio */
+#define INVALID_EVENT NULL
+
 /*==================[typedef]================================================*/
+
+typedef struct {
+	uint32_t tomado;
+	TaskParameters_t * tarea;
+} Semaforo_t;
 
 /*==================[external data declaration]==============================*/
 
 /*==================[external functions declaration]=========================*/
 
-/**
- * Funcion PendSV_Handler ejecutada por interrupcion
- * @param
- * @return void
- */
-extern void PendSV_Handler( void );
-/*==================[cplusplus]==============================================*/
+void semaforo_init(Semaforo_t * t);
 
-#ifdef __cplusplus
-}
-#endif
+void semaforo_take(Semaforo_t * t);
 
+void semaforo_give(Semaforo_t * t);
 
 /*==================[end of file]============================================*/
-#endif
+#endif /* #ifndef _OS_SEMAFORO_H_ */

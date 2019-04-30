@@ -19,13 +19,8 @@ extern "C" {
 
 /*==================[macros]=================================================*/
 
-/** led number to toggle */
-#define LED_ROJO  0
-#define LED_VERDE 1
-#define LED_AZUL  2
-#define LED_1     3
-#define LED_2     4
-#define LED_3     5
+#define _PULSADORES_HABILITADOS_	2
+#define _LONG_LINEA_UART_			256
 
 /*==================[typedef]================================================*/
 
